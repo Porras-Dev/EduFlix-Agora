@@ -1,0 +1,58 @@
+services: 
+  jellyfin: 
+    image: jellyfin/jellyfin:latest 
+    container_name: jellyfin 
+    restart: unless-stopped 
+    ports: 
+      - "8096:8096" 
+    volumes: 
+      - /mnt/datos/jellyfin/config:/config 
+      - /mnt/datos/jellyfin/cache:/cache 
+      - /mnt/datos/jellyfin/media:/media 
+    devices: 
+      - /dev/dri/card0:/dev/dri/card0 
+      - /dev/dri/renderD128:/dev/dri/renderD128 
+    group_add: 
+      - "44" 
+      - "993" 
+  postgresql: 
+    image: postgres:16-alpine 
+    container_name: postgresql 
+    restart: unless-stopped 
+    environment: 
+      POSTGRES_DB: eduflix 
+      POSTGRES_USER: eduflix 
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} 
+    volumes: 
+      - /mnt/datos/postgresql:/var/lib/postgresql/data 
+    ports: 
+      - "5432:5432" 
+    networks: 
+      eduflix-net: 
+        ipv4_address: 172.20.0.10 
+  nginx: 
+    image: nginx:latest 
+    container_name: nginx 
+    restart: unless-stopped 
+    ports: 
+      - "8082:80" 
+      - "8445:443" 
+    volumes: 
+      - /mnt/datos/nginx:/etc/nginx/conf.d 
+  pgadmin: 
+    image: dpage/pgadmin4 
+    container_name: pgadmin 
+    restart: unless-stopped 
+    environment: 
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL} 
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD} 
+    ports: 
+      - "5050:80" 
+    volumes: 
+      - /mnt/datos/pgadmin:/var/lib/pgadmin 
+networks: 
+  eduflix-net: 
+    driver: bridge 
+    ipam: 
+      config: 
+        - subnet: 172.20.0.0/24
