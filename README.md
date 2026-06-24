@@ -1,133 +1,361 @@
-# EduFlix Ágora 🎬
+# EduFlix Ágora — Self-Hosted Educational Streaming Platform
 
-Private educational streaming platform designed and deployed for **IES Ágora (Cáceres, Spain)** as a Final Degree Project for the Higher Degree in Network Systems Administration (ASIR), academic year 2025/2026.
+A fully self-hosted educational streaming platform designed and deployed for **IES Ágora (Cáceres, Spain)** as a Final Degree Project for the Higher Degree in Network Systems Administration (ASIR), academic year 2025/2026.
 
-> *"Why should a school depend on third-party platforms when it can run its own?"*
-
-The platform allows students and teachers to access educational video content from any device on the school network — with the same experience as a modern streaming service, but fully self-hosted, private, and built entirely with free and open-source software.
+The platform allows students and teachers to access educational video content from any device — with the same experience as a modern streaming service, but running entirely on school infrastructure, with no third-party dependencies, zero licensing costs, and full data sovereignty.
 
 ---
 
-## 🏗️ Infrastructure
+## Table of Contents
 
-| Node | Role | IP (LAN) | IP (ZeroTier) |
-|---|---|---|---|
-| Proxmox VE Host | Hypervisor (Intel i5-10400, 16GB RAM) | 192.168.1.20 | 10.204.191.210 |
-| LXC 100 — servidor-principal | Jellyfin, PostgreSQL, NGINX, pgAdmin, PHP Portal, Fail2Ban, CrowdSec | 192.168.1.21 | 10.204.191.231 |
-| LXC 101 — ciberseguridad | Wazuh SIEM, Suricata IDS | 192.168.1.23 | 10.204.191.184 |
-| LXC 102 — servicios-red | BIND9, Chrony, vsftpd, Postfix, Prometheus, Grafana | 192.168.1.22 | 10.204.191.148 |
-
-All services containerized with **Docker + Docker Compose** on LXC 100. Remote access via **ZeroTier** VPN across all nodes.
-
----
-
-## 🛠️ Full Tech Stack
-
-**Virtualization & Containers**
-- Proxmox VE 9.1 as hypervisor — LXC containers over Ubuntu Server 24.04
-- Docker + Docker Compose for service orchestration on LXC 100
-
-**Media & Database**
-- Jellyfin — media server with custom IES Ágora CSS theme and logo
-- PostgreSQL 16 + pgAdmin — relational database tracking users and content
-- Python sync script — real-time sync between Jellyfin API and PostgreSQL
-
-**Web & Proxy**
-- NGINX — reverse proxy with HTTPS and security headers
-- HAProxy — load balancer
-- Custom PHP admin portal — authentication, WebSockets, PostgreSQL integration
-- Node.js WebSocket server — real-time log streaming
-
-**Cybersecurity**
-- Wazuh SIEM — full agent deployment on all nodes, real-time event correlation
-- Suricata IDS — network traffic inspection and intrusion detection
-- Fail2Ban — brute force detection with real-time **Telegram alerts**
-- CrowdSec — collaborative threat intelligence
-- SSH hardening — custom port, key-only auth, IP whitelisting
-- UFW firewall
-
-**Monitoring & Backups**
-- Prometheus + Grafana — metrics collection and dashboards with 5 alert rules
-- Restic — encrypted, incremental automated backups
-
-**Network Services**
-- BIND9 — internal DNS server (agora.local zone)
-- Chrony — NTP time synchronization
-- vsftpd — FTP server with TLS for professor content uploads
-- Postfix — internal mail server
-
-**Remote Access & AI**
-- ZeroTier — private virtual network across all nodes
-- Whisper AI — automatic subtitle generation for educational videos
-
-**Desktop Client**
-- Java application — Jellyfin monitoring client (two versions: LAN + ZeroTier)
+1. [Architecture](#1-architecture)
+2. [Tech stack](#2-tech-stack)
+3. [Cybersecurity](#3-cybersecurity)
+4. [Repository contents](#4-repository-contents)
+5. [Deployment](#5-deployment)
+6. [What's not included](#6-whats-not-included)
+7. [Sustainability analysis](#7-sustainability-analysis)
+8. [Future improvements](#8-future-improvements)
+9. [Author](#9-author)
 
 ---
 
-## 🔐 Cybersecurity Features
+## 1. Architecture
 
-- Multi-layer protection: UFW → Fail2Ban → CrowdSec → Wazuh → Suricata
-- Wazuh SIEM monitoring all 3 nodes with agents — generates Level 10 alerts on brute force
-- Suricata inspecting every network packet in real time
-- Fail2Ban banning IPs automatically with instant Telegram notifications
-- SSH hardened across all nodes (custom port, no password auth, AllowUsers whitelist)
-- Restic encrypted backups with automated scheduling and retention policy
-- Weekly automated security audit script
+The platform runs on a single repurposed desktop (Intel i5-10400, 16 GB RAM) running **Proxmox VE** as the hypervisor, with three LXC containers over Ubuntu Server 24.04.
+
+```
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │                       PROXMOX VE HOST                               │
+ │             LAN 192.168.1.20 · ZeroTier 10.204.191.210             │
+ │                  Intel i5-10400 · 16 GB RAM                        │
+ └──────────────────────────┬──────────────────────────────────────────┘
+                            │  LXC containers (Ubuntu Server 24.04)
+             ┌──────────────┼──────────────┐
+             │              │              │
+             ▼              ▼              ▼
+ ┌────────────────┐ ┌──────────────┐ ┌──────────────────────┐
+ │   LXC 100      │ │   LXC 101    │ │   LXC 102            │
+ │  servidor-     │ │  cibersegu-  │ │  servicios-red       │
+ │  principal     │ │  ridad       │ │                      │
+ │                │ │              │ │                      │
+ │ LAN 192.168.   │ │ LAN 192.168. │ │ LAN 192.168.1.22     │
+ │ 1.21           │ │ 1.23         │ │ ZeroTier             │
+ │ ZeroTier       │ │ ZeroTier     │ │ 10.204.191.148       │
+ │ 10.204.191.231 │ │ 10.204.191.  │ │                      │
+ │                │ │ 184          │ │ · BIND9 (DNS)        │
+ │ · Jellyfin     │ │              │ │ · Chrony (NTP)       │
+ │ · PostgreSQL   │ │ · Wazuh SIEM │ │ · vsftpd (FTP/TLS)   │
+ │ · NGINX        │ │ · Suricata   │ │ · Postfix (SMTP)     │
+ │ · pgAdmin      │ │   IDS        │ │ · Prometheus         │
+ │ · PHP Portal   │ │              │ │ · Grafana            │
+ │ · Fail2Ban     │ │              │ │                      │
+ │ · CrowdSec     │ │              │ │                      │
+ └────────────────┘ └──────────────┘ └──────────────────────┘
+             │              │              │
+             └──────────ZeroTier VPN───────┘
+                 Network ID: 3b19b3a7161ea5af
+                 Private virtual overlay across all nodes
+```
+
+### Data flow
+
+```
+  Student / Teacher
+        │
+        ▼
+  ZeroTier VPN  ──or──  LAN (192.168.1.x)
+        │
+        ▼
+  NGINX (reverse proxy + HTTPS + security headers)
+        │
+        ├──► Jellyfin  ──────────────► media files (LXC 100)
+        │
+        └──► PHP Portal ──► PostgreSQL (auth + metrics + logs)
+                   │
+                   └──► Node.js WebSocket (real-time log streaming)
+
+  Prometheus (LXC 102) ──scrapes──► all 3 nodes
+        │
+        ▼
+  Grafana dashboards + 5 alert rules
+
+  Wazuh agents (all nodes) ──► Wazuh Manager (LXC 101)
+  Suricata ──────────────────► IDS alerts (LXC 101)
+  Fail2Ban ──────────────────► IP ban + Telegram alert (LXC 100)
+```
 
 ---
 
-## 💰 Sustainability Analysis
+## 2. Tech stack
 
-| | Local (EduFlix Ágora) | Cloud equivalent (AWS) |
+### Virtualisation & containers
+
+| Technology | Version | Role |
 |---|---|---|
-| Hardware cost | 0 € (reused equipment) | Included |
-| Software licenses | 0 € (100% open source) | Included |
-| Annual energy cost | ~103 € | Included |
-| **Total annual cost** | **~103 €** | **~4,440 €** |
-| **Annual savings** | **~4,337 €** | — |
+| Proxmox VE | 9.1 | Hypervisor — manages all 3 LXC containers |
+| LXC | — | Lightweight OS containers over Ubuntu 24.04 |
+| Docker + Docker Compose | — | Service orchestration on LXC 100 |
 
-The entire infrastructure runs on a **reused 5-year-old desktop**, extending its useful life and avoiding electronic waste. All software is free and open source — zero licensing costs.
+### Media & database
 
----
-
-## 📁 Repository Contents
-
-| File | Description |
+| Technology | Role |
 |---|---|
-| `EduFlix-Jellyfin-Client.jar` | Java desktop client (LAN version) |
-| `EduFlix-Jellyfin-Client-ZeroTier.jar` | Java desktop client (ZeroTier remote version) |
-| `ARQUITECTURA PROYECTO.pkt` | Cisco Packet Tracer network diagram |
-| `ARQUITECTURA PROYECTO.pkz` | Cisco Packet Tracer network diagram (packaged) |
-| `Sergio_Porras_Martin_Proyecto_Fin_Grado_EduFlix_Agora.pdf` | Full project documentation (137 pages) |
-| `Sergio_Porras_Martin_Anexo_Supremo_EduFlix_Agora.pdf` | Technical annex with step-by-step installation (257 pages) |
-| `server-config/` | Server scripts and Docker configuration |
-| `server-config/auditoria.sh` | Weekly security audit script |
-| `server-config/backup.sh` | Automated Restic backup script |
-| `server-config/telegram_alert.sh` | Fail2Ban Telegram notification script |
-| `server-config/sync_jellyfin.py` | Jellyfin to PostgreSQL sync script |
-| `server-config/update_fail2ban_nginx.sh` | Fail2Ban log path updater on reboot |
-| `server-config/docker-compose.yml` | Docker Compose configuration |
-| `server-config/portal/config.php` | PHP administration portal configuration |
-| `server-config/websocket/server.js` | Node.js WebSocket log streaming server |
+| Jellyfin | Self-hosted media server with custom IES Ágora CSS theme and logo |
+| PostgreSQL 16 | Relational database tracking users, content and access logs |
+| pgAdmin | PostgreSQL web administration interface |
+| Python sync script | Real-time sync between Jellyfin API and PostgreSQL |
+| Whisper AI | Automatic subtitle generation for educational videos |
+
+### Web & proxy
+
+| Technology | Role |
+|---|---|
+| NGINX | Reverse proxy, HTTPS termination, security headers |
+| HAProxy | Load balancer |
+| PHP portal | Custom admin portal — authentication, metrics, WebSocket integration |
+| Node.js WebSocket | Real-time log streaming to the PHP portal |
+
+### Cybersecurity
+
+| Technology | Role |
+|---|---|
+| Wazuh SIEM | Centralised security event monitoring — agents on all 3 nodes |
+| Suricata IDS | Real-time network traffic inspection and intrusion detection |
+| Fail2Ban | Automated IP banning on brute-force detection + Telegram alerts |
+| CrowdSec | Collaborative threat intelligence — second security layer |
+| UFW | Host firewall on all nodes |
+
+### Monitoring & backups
+
+| Technology | Role |
+|---|---|
+| Prometheus | Metrics collection from all nodes |
+| Grafana | Dashboards + 5 configured alert rules |
+| Restic | Encrypted, incremental automated backups with retention policy |
+
+### Network services (LXC 102)
+
+| Technology | Role |
+|---|---|
+| BIND9 | Internal DNS server — `agora.local` zone |
+| Chrony | NTP time synchronisation across all nodes |
+| vsftpd | FTP server with TLS for professor content uploads |
+| Postfix | Internal SMTP mail server |
+
+### Remote access & client
+
+| Technology | Role |
+|---|---|
+| ZeroTier | Private virtual overlay network across all nodes |
+| Java desktop client | Jellyfin monitoring client — LAN and ZeroTier versions |
 
 ---
 
-## 🔮 Future Improvements
+## 3. Cybersecurity
+
+The platform implements a **5-layer security model** where each layer catches what the previous one misses:
+
+```
+  Incoming traffic
+        │
+        ▼
+  ┌─────────────┐
+  │    UFW      │  Layer 1 — host firewall: blocks all ports except
+  │  Firewall   │  explicitly allowed ones on every node
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │  Fail2Ban   │  Layer 2 — brute force detection: monitors SSH,
+  │             │  NGINX and Jellyfin logs; bans offending IPs
+  │             │  automatically and sends instant Telegram alerts
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │  CrowdSec   │  Layer 3 — collaborative threat intelligence:
+  │             │  blocks IPs flagged by the global CrowdSec
+  │             │  community before they even connect
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │ Wazuh SIEM  │  Layer 4 — centralised event correlation:
+  │             │  agents on all 3 nodes; generates Level 10
+  │             │  alerts on brute-force; monitors file integrity,
+  │             │  system calls and log anomalies in real time
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │  Suricata   │  Layer 5 — deep packet inspection: analyses
+  │    IDS      │  every network packet in real time; detects
+  │             │  intrusion patterns, port scans and exploits
+  └─────────────┘
+```
+
+### Additional hardening
+
+- SSH on custom port, key-only authentication, `AllowUsers` whitelist across all nodes
+- NGINX with strict security headers (HSTS, X-Frame-Options, CSP)
+- Restic backups encrypted at rest with automated scheduling and retention policy
+- Weekly automated security audit script (`server-config/auditoria.sh`)
+- Live brute-force demo tested during project presentation: triggers Wazuh Level 10 alert + Fail2Ban ban + Telegram notification in real time
+
+---
+
+## 4. Repository contents
+
+| Path | Description |
+|---|---|
+| `EduFlix-Jellyfin-Client.jar` | Java desktop client — LAN version |
+| `EduFlix-Jellyfin-Client-ZeroTier.jar` | Java desktop client — ZeroTier remote version |
+| `EduFlix-Agora-Network-Diagram.pkt` | Cisco Packet Tracer network diagram |
+| `EduFlix-Agora-Network-Diagram.pkz` | Cisco Packet Tracer network diagram (packaged) |
+| `EduFlix-Agora-Project-Documentation.pdf` | Full project documentation (137 pages) |
+| `EduFlix-Agora-Technical-Annex.pdf` | Technical annex with step-by-step installation (257 pages) |
+| `portal/` | PHP administration portal source code |
+| `portal/index.php` | Main portal entry point |
+| `portal/login.php` | Authentication system |
+| `portal/metricas.php` | Metrics and usage dashboard |
+| `portal/logs.php` | Real-time log viewer (WebSocket) |
+| `portal/jellyfin.php` | Jellyfin integration and content management |
+| `portal/basedatos.php` | Database administration interface |
+| `portal/backups.php` | Backup status and management |
+| `portal/servicios.php` | Services status overview |
+| `portal/includes/` | Shared PHP components (auth, layout, functions) |
+| `server-config/docker-compose.yml` | Docker Compose — Jellyfin, PostgreSQL, NGINX, pgAdmin |
+| `server-config/auditoria.sh` | Weekly automated security audit script |
+| `server-config/backup.sh` | Restic backup automation script |
+| `server-config/telegram_alert.sh` | Fail2Ban → Telegram notification script |
+| `server-config/sync_jellyfin.py` | Jellyfin API to PostgreSQL real-time sync |
+| `server-config/update_fail2ban_nginx.sh` | Fail2Ban log path updater (runs on reboot) |
+| `server-config/websocket/server.js` | Node.js WebSocket server for real-time log streaming |
+| `.env.example` | Environment variable template |
+
+---
+
+## 5. Deployment
+
+> Full step-by-step installation instructions are documented in `EduFlix-Agora-Technical-Annex.pdf` (257 pages). This section provides a high-level overview of the deployment order.
+
+### Hardware requirements
+
+| Component | Minimum | Used in this project |
+|---|---|---|
+| CPU | 4 cores | Intel i5-10400 (6c/12t) |
+| RAM | 8 GB | 16 GB DDR4 |
+| Storage | 256 GB SSD + HDD | 256 GB NVMe + 1 TB HDD |
+| Network | 1 Gbps | Integrated |
+
+### Deployment order
+
+**1. Proxmox VE**
+
+- Install Proxmox VE 9.1 on the host machine
+- Create 3 LXC containers with Ubuntu Server 24.04
+
+**2. LXC 102 — Network services (deploy first)**
+
+```bash
+# Install: BIND9, Chrony, vsftpd, Postfix, Prometheus, Grafana
+# Configure the agora.local DNS zone
+# Set Chrony as NTP source for all nodes
+```
+
+**3. LXC 100 — Main server**
+
+```bash
+# Install Docker + Docker Compose
+# Copy server-config/docker-compose.yml to the server
+cp .env.example .env
+# Fill in .env with real values
+docker compose up -d
+# Install and configure: Fail2Ban, CrowdSec, NGINX, SSH hardening
+```
+
+**4. LXC 101 — Cybersecurity**
+
+```bash
+# Deploy Wazuh Manager
+# Install Wazuh agents on all 3 nodes
+# Deploy Suricata IDS
+```
+
+**5. ZeroTier**
+
+- Create a ZeroTier network at [my.zerotier.com](https://my.zerotier.com)
+- Join all 3 nodes and the Proxmox host to the network
+- Assign static IPs within ZeroTier
+
+### Environment variables
+
+Copy `.env.example` to `.env` and fill in the required values:
+
+| Variable | Description |
+|---|---|
+| `JELLYFIN_API_KEY` | Jellyfin API key (Dashboard → API Keys) |
+| `POSTGRES_PASSWORD` | PostgreSQL admin password |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token for Fail2Ban alerts |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID to receive alerts |
+| `ZEROTIER_NETWORK_ID` | ZeroTier network ID |
+
+---
+
+## 6. What's not included
+
+The repository contains source code, scripts and documentation only. The following are excluded for security or privacy reasons:
+
+| Excluded | Reason |
+|---|---|
+| `.env` | Contains passwords, API keys and tokens |
+| SSL/TLS certificates | Site-specific — must be generated per deployment |
+| Jellyfin media library | Copyrighted educational content |
+| PostgreSQL database dumps | Contains real student and teacher data (GDPR) |
+| Wazuh agent keys | Node-specific security credentials |
+| SSH private keys | Private authentication material |
+| ZeroTier auth token | Network-specific secret |
+
+When deploying from this repository, all credentials must be created fresh. See `EduFlix-Agora-Technical-Annex.pdf` for the complete setup procedure.
+
+---
+
+## 7. Sustainability analysis
+
+The entire infrastructure runs on a **reused 5-year-old desktop**, extending its useful life and avoiding electronic waste. All software is 100% free and open source — zero licensing costs.
+
+| | EduFlix Ágora (local) | Cloud equivalent (AWS) |
+|---|---|---|
+| Hardware cost | 0 € (reused equipment) | Included in monthly cost |
+| Software licences | 0 € (100% open source) | Included in monthly cost |
+| Annual energy cost | ~103 € | Included in monthly cost |
+| **Total annual cost** | **~103 €** | **~4,440 €** |
+| **Annual saving** | **~4,337 €** | — |
+
+---
+
+## 8. Future improvements
 
 - VLAN segmentation (802.1Q) to isolate production, cybersecurity and management networks
-- Let's Encrypt TLS certificate via internal Step CA
-- Per-user Jellyfin library permissions by enrolled subjects
-- Migration from FTP to SFTP for professor uploads
+- Let's Encrypt TLS via internal Step CA
+- Per-user Jellyfin library permissions based on enrolled subjects
+- Migration from FTP to SFTP for professor content uploads
 - High availability with a second Proxmox node
-- Unified dashboard with Heimdall or Homepage
+- Unified service dashboard (Heimdall or Homepage)
 - Full DNS resolution for all services including ZeroTier IPs
 
 ---
 
-## 👨‍💻 Author
+## 9. Author
 
 **Sergio Porras Martín**
-IES Ágora, Cáceres — 2025/2026
+IES Ágora, Cáceres — ASIR 2025/2026
 
 [![GitHub](https://img.shields.io/badge/GitHub-Porras--Dev-black?logo=github)](https://github.com/Porras-Dev)
+
+---
+
+## Licence
+
+This project is licensed under the MIT Licence — see the [LICENSE](LICENSE) file for details.
