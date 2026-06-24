@@ -27,8 +27,8 @@ The platform runs on a single repurposed desktop (Intel i5-10400, 16 GB RAM) run
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
  │                       PROXMOX VE HOST                               │
- │             LAN 192.168.1.20 · ZeroTier 10.204.191.210             │
- │                  Intel i5-10400 · 16 GB RAM                        │
+ │             LAN 192.168.1.20 · ZeroTier 10.204.191.210              │
+ │                  Intel i5-10400 · 16 GB RAM                         │
  └──────────────────────────┬──────────────────────────────────────────┘
                             │  LXC containers (Ubuntu Server 24.04)
              ┌──────────────┼──────────────┐
